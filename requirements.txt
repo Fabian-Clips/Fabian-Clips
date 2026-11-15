@@ -1,4 +1,4 @@
-streamlit
+streamlit==1.37.0
 yt-dlp
 faster-whisper==1.2.1
 av==14.1.0
