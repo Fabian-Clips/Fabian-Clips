@@ -1,133 +1,191 @@
 import streamlit as st
-import os, subprocess, tempfile, zipfile, io
+import os, subprocess, tempfile, io, zipfile, time
 
-st.set_page_config(page_title="Generador de clips para TikTok")
-st.title("🎬 Generador de clips para TikTok")
-st.write("Pegá el link, y te armo 5 clips estilo RDjavi.")
+st.set_page_config(page_title="Clips en VIVO - RDjavi", layout="wide")
 
-url = st.text_input("Link del video de Kick o YouTube")
-nombre = st.text_input("Nombre para el cartel rojo del medio", value="RDjavi")
-idioma = st.selectbox("Idioma del video", ["Español", "English"])
-lang_code = "es" if idioma == "Español" else "en"
-sin_subs = st.checkbox("⚡ Generar SIN subtítulos (mucho más rápido, no se traba)", value=True)
+# --- ESTILO BOTÓN GRANDE PARA LA NETBOOK ---
+st.markdown("""
+<style>
+.big-btn button { font-size: 28px !important; padding: 20px !important; background-color: red !important; color: white !important; font-weight: bold !important; height: 70px !important; width: 100% !important; }
+</style>
+""", unsafe_allow_html=True)
 
-if "clips_guardados" not in st.session_state:
-    st.session_state.clips_guardados = None
+st.title("🔴 CLIPS EN VIVO - Estilo MR Vargas TV")
+st.write("Netbook al lado de la tele. Pegá el link, apretá el botón rojo, y la app sola saca los clips completos.")
 
-def crear_subtitulos_ass(segments, path):
-    header = """[Script Info]
-ScriptType: v4.00+
-PlayResX: 720
-PlayResY: 1280
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,30,&H00FFFFFF,&H0000FFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,0,2,10,10,350,1
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-    def fmt(t):
-        h = int(t//3600); m = int((t%3600)//60); s = int(t%60); cs = int((t%1)*100)
-        return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
-    lines = [header]
-    for seg in segments:
-        texto = seg.text.strip().upper()
-        lines.append(f"Dialogue: 0,{fmt(seg.start)},{fmt(seg.end)},Default,,0,0,0,,{texto}")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+if "clips_vivo" not in st.session_state:
+    st.session_state.clips_vivo = []
+if "grabando" not in st.session_state:
+    st.session_state.grabando = False
 
-if st.button("Generar clips"):
-    if not url:
-        st.warning("Pegá un link primero")
-        st.stop()
-    st.info("⏳ Trabajando... No cierres esta pestaña, tarda 3-4 minutos.")
-    with tempfile.TemporaryDirectory() as tmp:
-        video_path = os.path.join(tmp, "video.mp4")
-        audio_path = os.path.join(tmp, "audio.mp3")
-        cara_path = os.path.join(tmp, "cara.jpg")
-        ass_path = os.path.join(tmp, "subs.ass")
+# --- ARRIBA: PEGAR LINK + BOTÓN GRANDE ---
+url = st.text_input("🔗 Pegá acá el link del directo EN VIVO de Kick / YouTube", placeholder="Pegá el link acá...")
+nombre = st.text_input("Nombre del streamer", value="RDjavi")
 
-        st.write("1/4 Bajando video (solo 5 min)...")
-        cmd = ["yt-dlp", "--no-playlist", "--user-agent", "Mozilla/5.0",
-               "--extractor-args", "youtube:player_client=android,web",
-               "-f", "best[height<=480]",
-               "--download-sections", "*00:00-00:05:00",
-               "--max-filesize", "250M",
-               "-o", video_path, url]
-        subprocess.run(cmd, capture_output=True)
-        if not os.path.exists(video_path):
-            st.error("No pude descargar.")
-            st.stop()
-        st.success(f"Video bajado: {os.path.getsize(video_path)//1024//1024} MB")
-
-        st.write("2/4 Subtítulos...")
-        segments_list = []
-        if sin_subs:
-            st.write("Salteamos subtítulos para que vaya rápido ✅")
-            # Creamos un ASS vacío para que no falle
-            crear_subtitulos_ass([], ass_path)
+col_btn1, col_btn2 = st.columns([3, 1])
+with col_btn1:
+    st.markdown('<div class="big-btn">', unsafe_allow_html=True)
+    if st.button("🔴 EMPEZAR A GRABAR EN VIVO"):
+        if not url:
+            st.warning("Pegá el link primero")
         else:
-            subprocess.run(["ffmpeg", "-y", "-i", video_path, "-vn", audio_path], capture_output=True)
+            st.session_state.grabando = True
+            st.success("🔴 ¡GRABANDO! Dejá la netbook abierta. Yo solo saco los clips.")
+    st.markdown('</div>', unsafe_allow_html=True)
+with col_btn2:
+    if st.button("⏹️ PARAR"):
+        st.session_state.grabando = False
+        st.info("Paraste la grabación.")
+
+if st.session_state.grabando:
+    st.warning("🔴 EN VIVO - Estoy escuchando el directo... Si se enoja, se ríe, hace un chiste o entra al juego, te saco el clip COMPLETO, de donde empieza hasta donde termina.")
+
+    # --- PALABRAS QUE LA APP ESCUCHA ---
+    # Enojo
+    PALABRAS_ENOJO = ["boludo", "pelotudo", "idiota", "tonto", "mierda", "hijo de", "callate", "cállate", "no me rompas", "me tienen harto", "salí de acá", "forro", "gil", "chat de mierda", "no jodan", "déjense de joder"]
+    # Risa / Chiste
+    PALABRAS_RISA = ["jajaja", "jaja", "me muero", "no puedo", "que gracioso", "qué gracioso", "me cago de risa", "es un chiste", "mirá lo que hizo"]
+    # Juego
+    PALABRAS_JUEGO = ["gta", "vamos a jugar", "entro al juego", "cargando", "ya estoy en el juego", "partida", "vamos a robar", "policía", "me mataron", "ganamos"]
+    # Importante
+    PALABRAS_IMPORTANTE = ["apagón", "apagon", "17 de noviembre", "noticia", "urgente", "miren esto", "escuchen esto", "atención"]
+
+    def que_paso_en(texto):
+        t = texto.lower()
+        for p in PALABRAS_ENOJO:
+            if p in t:
+                return f"{nombre} SE ENOJA CON EL CHAT"
+        for p in PALABRAS_RISA:
+            if p in t:
+                return f"{nombre} SE RIE / HACE UN CHISTE"
+        for p in PALABRAS_JUEGO:
+            if p in t:
+                return f"{nombre} ENTRA AL JUEGO - {p.upper()}"
+        for p in PALABRAS_IMPORTANTE:
+            if p in t:
+                return f"{nombre} HABLA DE {p.upper()}"
+        return None
+
+    if st.button("🔄 REVISAR AHORA - Buscar momento importante en los últimos minutos", type="primary"):
+        st.info("Escuchando los últimos minutos del directo...")
+        with tempfile.TemporaryDirectory() as tmp:
+            v = os.path.join(tmp, "vivo.mp4")
+            a = os.path.join(tmp, "vivo.mp3")
+            cara = os.path.join(tmp, "cara.jpg")
+            # Bajamos 5 minutos para poder agarrar el momento COMPLETO, de donde empieza a donde termina
+            cmd = ["yt-dlp", "--no-playlist", "--user-agent", "Mozilla/5.0",
+                   "--extractor-args", "youtube:player_client=android,web",
+                   "-f", "best[height<=480]", "--download-sections", "*00:00-00:05:00",
+                   "--max-filesize", "400M", "-o", v, url]
+            subprocess.run(cmd, capture_output=True)
+            if not os.path.exists(v):
+                st.error("No pude bajar el directo. ¿Está en vivo? ¿El link está bien?")
+                st.stop()
+            subprocess.run(["ffmpeg", "-y", "-i", v, "-vn", a], capture_output=True)
             try:
                 from faster_whisper import WhisperModel
                 model = WhisperModel("tiny", device="cpu", compute_type="int8")
-                segments, info = model.transcribe(audio_path, language=lang_code)
-                segments_list = list(segments)
-                st.write(f"Transcripción lista: {len(segments_list)} frases")
+                segs, _ = model.transcribe(a, language="es")
+                segs = list(segs)
             except Exception as e:
-                st.write("Sigo sin subtítulos, pero hago los clips igual.")
-                crear_subtitulos_ass([], ass_path)
+                st.write(f"No pude transcribir ahora, pruebo de nuevo: {e}")
+                segs = []
 
-        # Foto fija de él, sin estirar, sin loop - así no se corta el audio
-        st.write("2.5/4 Guardando foto del streamer, bien centrada y sin estirar...")
-        subprocess.run([
-            "ffmpeg", "-y", "-ss", "3", "-i", video_path, "-vframes", "1",
-            "-vf", "crop=iw*0.6:ih:iw*0.2:0",
-            cara_path
-        ], capture_output=True)
+            if not segs:
+                st.write("No escuché nada claro, sigo grabando...")
+                st.stop()
 
-        st.write("3/4 Cortando 5 clips estilo RDjavi, sin estirar y sin cortes...")
-        clips_bytes = []
-        for i in range(5):
-            start = i * 30
-            out = os.path.join(tmp, f"clip_{i+1}.mp4")
-            if not sin_subs:
-                clip_segs = [s for s in segments_list if s.start >= start and s.start < start+30]
-                for s in clip_segs:
-                    s.start -= start; s.end -= start
-                crear_subtitulos_ass(clip_segs, ass_path)
+            # --- DETECTAR MOMENTO COMPLETO: DE DONDE EMPIEZA A DONDE TERMINA ---
+            # Buscamos el primer segmento donde se enoja / ríe / etc.
+            # Y seguimos hasta que pasen 3 frases seguidas sin que se enoje / ría, ahí termina el momento
+            encontrado = None
+            for idx, s in enumerate(segs):
+                titulo = que_paso_en(s.text)
+                if titulo:
+                    inicio = max(0, s.start - 2)  # 2 seg antes para agarrar el principio
+                    # Ahora buscamos dónde termina: seguimos mientras siga enojado / riéndose
+                    fin = s.end
+                    sin_nada = 0
+                    for s2 in segs[idx+1:]:
+                        if que_paso_en(s2.text):
+                            fin = s2.end
+                            sin_nada = 0
+                        else:
+                            sin_nada += 1
+                            # Si pasaron 3 frases y ya no se enoja, ahí termina el momento
+                            if sin_nada >= 3:
+                                fin = s2.start
+                                break
+                            fin = s2.end
+                    dur = int(fin - inicio)
+                    # Si es muy cortito, lo dejamos en 25 seg mínimo para que se entienda
+                    if dur < 25:
+                        fin = inicio + 25
+                        dur = 25
+                    # Si es muy largo, lo cortamos en 2 minutos máximo para TikTok
+                    if dur > 120:
+                        fin = inicio + 120
+                        dur = 120
+                    encontrado = (inicio, fin, dur, titulo)
+                    st.success(f"🎯 ¡ENCONTRÉ ALGO! {titulo}")
+                    st.write(f"Empieza en el seg {int(inicio)} y termina en el seg {int(fin)} - Dura {dur} seg COMPLETO, sin cortar a la mitad.")
+                    break
 
+            if not encontrado:
+                st.write("En estos minutos no se enojó, ni se rió, ni pasó nada. Sigo escuchando... Dejá la netbook abierta y apretá REVISAR de nuevo en 2 minutos.")
+                st.stop()
+
+            inicio, fin, dur, titulo = encontrado
+            # Cortamos el clip COMPLETO
+            subprocess.run(["ffmpeg", "-y", "-ss", str(inicio+2), "-i", v, "-vframes", "1", "-vf", "crop=iw*0.6:ih:iw*0.2:0", cara], capture_output=True)
+            out = os.path.join(tmp, "clip_vivo.mp4")
             filtro = (
                 "[0:v]scale=720:540:force_original_aspect_ratio=decrease,pad=720:540:(ow-iw)/2:(oh-ih)/2:black,setsar=1[top];"
                 "[1:v]scale=720:740:force_original_aspect_ratio=decrease,pad=720:740:(ow-iw)/2:(oh-ih)/2:black,setsar=1[bottom];"
                 "[top][bottom]vstack=inputs=2[base];"
                 f"[base]drawbox=x=270:y=500:w=180:h=50:color=red@0.95:t=fill,"
-                f"drawtext=text='{nombre}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=28:fontcolor=white:x=360-text_w/2:y=512,"
-                f"subtitles='{ass_path}'[v]"
+                f"drawtext=text='{nombre}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=28:fontcolor=white:x=360-text_w/2:y=512[v]"
             )
-            subprocess.run([
-                "ffmpeg", "-y",
-                "-loop", "1", "-i", cara_path,
-                "-ss", str(start), "-i", video_path, "-t", "30",
-                "-filter_complex", filtro,
-                "-map", "[v]", "-map", "1:a", "-c:a", "aac", "-shortest", out
-            ], capture_output=True)
+            subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", cara, "-ss", str(inicio), "-i", v, "-t", str(dur),
+                            "-filter_complex", filtro, "-map", "[v]", "-map", "1:a", "-c:a", "aac", "-shortest", out], capture_output=True)
             if os.path.exists(out):
                 with open(out, "rb") as f:
-                    clips_bytes.append((f"clip_{i+1}.mp4", f.read()))
-                st.write(f"Clip {i+1} listo ✅")
+                    datos = f.read()
+                st.session_state.clips_vivo.append({"titulo": titulo, "video": datos, "dur": dur})
+                st.success(f"✅ Clip guardado: {titulo} - {dur} seg completo")
+                st.video(datos)
 
-        st.session_state.clips_guardados = clips_bytes
-        st.success("¡Listo! Ya quedaron guardados, bajalos abajo.")
+# --- ABAJO: LISTA DE CLIPS QUE YA SALIERON, COMO MR VARGAS ---
+st.write("---")
+st.write("### 📋 Clips que ya salieron solos - En espera para subir a TikTok")
+if not st.session_state.clips_vivo:
+    st.write("Todavía no salió ningún clip. Cuando él se enoje, se ría o entre al juego, acá te aparece solo.")
+else:
+    col_izq, col_medio, col_der = st.columns([1, 1, 1.2])
+    # Izquierda: lista
+    with col_izq:
+        st.write("**Esperando la decisión**")
+        for i, c in enumerate(st.session_state.clips_vivo):
+            st.write(f"Clip #{84+i} - {c['titulo']} - {c['dur']} seg")
+    # Medio: video
+    with col_medio:
+        ultimo = st.session_state.clips_vivo[-1]
+        st.write(f"**{ultimo['titulo']}**")
+        st.video(ultimo['video'])
+    # Derecha: editor
+    with col_der:
+        st.write("**✏️ Editor**")
+        nuevo_titulo = st.text_input("Título del clip", value=ultimo['titulo'])
+        st.write(f"Duración completa: {ultimo['dur']} segundos - De donde empieza a donde termina")
+        st.download_button("⬇️ Bajar este clip para TikTok", ultimo['video'], file_name=f"{nuevo_titulo}.mp4", mime="video/mp4", type="primary")
+        if st.button("❌ Descartar este clip"):
+            st.session_state.clips_vivo.pop()
+            st.rerun()
 
-if st.session_state.clips_guardados:
-    st.write("4/4 Miralos acá y bajalos 👇 - Ya no se van a borrar")
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w") as z:
-        for nombre_f, datos in st.session_state.clips_guardados:
-            z.writestr(nombre_f, datos)
-    st.download_button("⬇️ BAJAR LOS 5 CLIPS JUNTOS (ZIP)", zip_buffer.getvalue(), file_name="mis_5_clips.zip", mime="application/zip", type="primary")
-    st.write("O miralos y bajalos uno por uno desde el video:")
-    for nombre_f, datos in st.session_state.clips_guardados:
-        st.write(f"--- {nombre_f} ---")
-        st.video(datos)
-        st.download_button(f"⬇️ Bajar {nombre_f}", datos, file_name=nombre_f, mime="video/mp4", key=f"dl_{nombre_f}")
+    st.write("---")
+    st.write("**Bajar todos juntos:**")
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w") as z:
+        for i, c in enumerate(st.session_state.clips_vivo):
+            z.writestr(f"clip_{i+1}_{c['titulo']}.mp4", c['video'])
+    st.download_button("⬇️ BAJAR TODOS LOS CLIPS (ZIP)", zip_buf.getvalue(), file_name="clips_en_vivo.zip", mime="application/zip")
