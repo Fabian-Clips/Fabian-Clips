@@ -1,5 +1,5 @@
 import streamlit as st
-import os, subprocess, requests, tempfile, re
+import os, subprocess, tempfile
 
 st.set_page_config(page_title="Generador de clips para TikTok")
 st.title("🎬 Generador de clips para TikTok")
@@ -13,32 +13,31 @@ if st.button("Generar clips"):
         st.warning("Pegá un link primero")
         st.stop()
 
-    st.info("⏳ Trabajando... No cierres esta pestaña, tarda 2-3 minutos.")
+    st.info("⏳ Trabajando... No cierres esta pestaña.")
 
     with tempfile.TemporaryDirectory() as tmp:
         video_path = os.path.join(tmp, "video.mp4")
 
-        # Comando que sí anda en 2026 para YouTube y Kick
+        # CLAVE: solo 5 minutos, calidad 480p, max 250 MB
         cmd = [
             "yt-dlp",
             "--no-playlist",
-            "--no-check-certificates",
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "--add-header", "Referer: https://www.youtube.com/",
-            # Esto es la clave: usa el cliente de Android, no necesita JavaScript
+            "--user-agent", "Mozilla/5.0",
             "--extractor-args", "youtube:player_client=android,web",
-            "--js-runtimes", "node:deno",
-            "-f", "best",
+            "-f", "best[height<=480]",
+            "--download-sections", "*00:00-00:05:00",
+            "--max-filesize", "250M",
             "-o", video_path,
             url
         ]
         res = subprocess.run(cmd, capture_output=True, text=True)
 
         if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
-            st.error("No pude descargar el video. Probá con otro link más corto.")
-            st.code(res.stderr[-800:] if res.stderr else "archivo vacío")
+            st.error("No pude descargar. Probá con otro link.")
+            st.code(res.stderr[-600:])
             st.stop()
 
-        st.success("¡Video descargado! Ya puedo hacer los clips.")
-        st.write(f"Tamaño: {os.path.getsize(video_path)//1024} KB")
-        st.video(video_path)
+        tamano_mb = os.path.getsize(video_path)//1024//1024
+        st.success(f"¡Video descargado! Tamaño: {tamano_mb} MB - Ya puedo hacer los clips.")
+        # NO mostramos el video entero acá, eso era lo que rompía todo
+        st.write("Listo, ya bajó solo los primeros 5 minutos. Ahora sigue la parte de los clips.")
