@@ -17,7 +17,7 @@ if st.button("Generar clips"):
         st.stop()
 
     st.info("⏳ Trabajando... No cierres esta pestaña, tarda 2-3 minutos.")
-    st.write("1/4 Descargando el video...")
+    
 
     os.makedirs("work", exist_ok=True)
     video_path = "work/video.mp4"
@@ -37,14 +37,14 @@ if st.button("Generar clips"):
         st.error(f"No pude descargar el video: {e}")
         st.stop()
 
-    st.write("2/4 Analizando el audio...")
+    
 
     # Extraer audio para Whisper
     audio_path = "work/audio.wav"
     subprocess.run(["ffmpeg", "-y", "-i", video_path, "-vn", "-ar", "16000", "-ac", "1", audio_path],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
-    st.write("3/4 Transcribiendo con Whisper (la primera vez tarda más)...")
+    
 
     from faster_whisper import WhisperModel
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
@@ -71,7 +71,7 @@ if st.button("Generar clips"):
         st.error("No detecté voz en este video. Probá con otro link.")
         st.stop()
 
-    st.write("4/4 Cortando los 5 clips verticales...")
+    
 
     # Duración total
     dur = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
