@@ -9,6 +9,7 @@ url = st.text_input("Link del video de Kick o YouTube")
 nombre = st.text_input("Nombre para el cartel rojo del medio", value="RDjavi")
 idioma = st.selectbox("Idioma del video", ["Español", "English"])
 lang_code = "es" if idioma == "Español" else "en"
+sin_subs = st.checkbox("⚡ Generar SIN subtítulos (mucho más rápido, no se traba)", value=True)
 
 if "clips_guardados" not in st.session_state:
     st.session_state.clips_guardados = None
@@ -38,7 +39,7 @@ if st.button("Generar clips"):
     if not url:
         st.warning("Pegá un link primero")
         st.stop()
-    st.info("⏳ Trabajando... No cierres esta pestaña, tarda 4-5 minutos.")
+    st.info("⏳ Trabajando... No cierres esta pestaña, tarda 3-4 minutos.")
     with tempfile.TemporaryDirectory() as tmp:
         video_path = os.path.join(tmp, "video.mp4")
         audio_path = os.path.join(tmp, "audio.mp3")
@@ -58,20 +59,25 @@ if st.button("Generar clips"):
             st.stop()
         st.success(f"Video bajado: {os.path.getsize(video_path)//1024//1024} MB")
 
-        st.write("2/4 Transcribiendo para los subtítulos...")
-        subprocess.run(["ffmpeg", "-y", "-i", video_path, "-vn", audio_path], capture_output=True)
+        st.write("2/4 Subtítulos...")
         segments_list = []
-        try:
-            from faster_whisper import WhisperModel
-            model = WhisperModel("tiny", device="cpu", compute_type="int8")
-            segments, info = model.transcribe(audio_path, language=lang_code)
-            segments_list = list(segments)
-            st.write(f"Transcripción lista: {len(segments_list)} frases")
-        except Exception as e:
-            st.write("Sigo sin subtítulos, pero hago los clips igual.")
+        if sin_subs:
+            st.write("Salteamos subtítulos para que vaya rápido ✅")
+            # Creamos un ASS vacío para que no falle
+            crear_subtitulos_ass([], ass_path)
+        else:
+            subprocess.run(["ffmpeg", "-y", "-i", video_path, "-vn", audio_path], capture_output=True)
+            try:
+                from faster_whisper import WhisperModel
+                model = WhisperModel("tiny", device="cpu", compute_type="int8")
+                segments, info = model.transcribe(audio_path, language=lang_code)
+                segments_list = list(segments)
+                st.write(f"Transcripción lista: {len(segments_list)} frases")
+            except Exception as e:
+                st.write("Sigo sin subtítulos, pero hago los clips igual.")
+                crear_subtitulos_ass([], ass_path)
 
-        # ARREGLO 1 y 2: Sacamos UNA SOLA FOTO de él, no un video en loop
-        # Así no se estira y no se corta el audio
+        # Foto fija de él, sin estirar, sin loop - así no se corta el audio
         st.write("2.5/4 Guardando foto del streamer, bien centrada y sin estirar...")
         subprocess.run([
             "ffmpeg", "-y", "-ss", "3", "-i", video_path, "-vframes", "1",
@@ -84,13 +90,12 @@ if st.button("Generar clips"):
         for i in range(5):
             start = i * 30
             out = os.path.join(tmp, f"clip_{i+1}.mp4")
-            clip_segs = [s for s in segments_list if s.start >= start and s.start < start+30]
-            for s in clip_segs:
-                s.start -= start; s.end -= start
-            crear_subtitulos_ass(clip_segs, ass_path)
+            if not sin_subs:
+                clip_segs = [s for s in segments_list if s.start >= start and s.start < start+30]
+                for s in clip_segs:
+                    s.start -= start; s.end -= start
+                crear_subtitulos_ass(clip_segs, ass_path)
 
-            # ARRIBA: foto fija, sin estirar, con bordes negros si hace falta para que no se deforme
-            # ABAJO: juego sin estirar
             filtro = (
                 "[0:v]scale=720:540:force_original_aspect_ratio=decrease,pad=720:540:(ow-iw)/2:(oh-ih)/2:black,setsar=1[top];"
                 "[1:v]scale=720:740:force_original_aspect_ratio=decrease,pad=720:740:(ow-iw)/2:(oh-ih)/2:black,setsar=1[bottom];"
